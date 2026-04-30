@@ -460,6 +460,8 @@ void OFeedClient::ensureEventImageCachedAtStartup()
 		return;
 	if(!printEventImageOnReceipt())
 		return;
+	if(hasCachedEventImage())
+		return;
 	m_eventImageStartupAttempted = true;
 	refreshEventImageCache();
 }
