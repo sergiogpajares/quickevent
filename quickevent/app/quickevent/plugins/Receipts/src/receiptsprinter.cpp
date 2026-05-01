@@ -47,12 +47,19 @@ bool ReceiptsPrinter::printReceipt(const QString &report_file_name, const QVaria
 		return false;
 	}
 	QF_TIME_SCOPE("ReceiptsPrinter::printReceipt()");
+	qf::gui::reports::ReportProcessor rp;
+	{
+		QF_TIME_SCOPE("setting report and data");
+		auto *plugin = qf::gui::framework::getPlugin<Receipts::ReceiptsPlugin>();
+		if(!rp.setReport(plugin->findReportFile(report_file_name)))
+			return false;
+		for(const auto &[key, val] : report_data.asKeyValueRange()) {
+			rp.setTableData(key, val);
+		}
+	}
 	ReceiptsSettings settings;
-	QPrinter *printer = nullptr;
-	QPaintDevice *paint_device = nullptr;
-	qff::MainWindow *fwk = qff::MainWindow::frameWork();
 	if(settings.printerTypeEnum() == ReceiptsSettings::PrinterType::GraphicPrinter) {
-		QF_TIME_SCOPE("init graphics printer");
+		QF_TIME_SCOPE("process graphics");
 		QPrinterInfo pi = QPrinterInfo::printerInfo(settings.graphicsPrinterName());
 		if(pi.isNull()) {
 			for(const auto &s : QPrinterInfo::availablePrinterNames()) {
@@ -64,34 +71,14 @@ bool ReceiptsPrinter::printReceipt(const QString &report_file_name, const QVaria
 			qfWarning() << "Default printer not set";
 			return false;
 		}
+
 		qfInfo() << "printing on:" << pi.printerName();
-		printer = new QPrinter(pi);
-		paint_device = printer;
-	}
-	else {
-		qfInfo() << "printing on:" << settings.characterPrinterModel() << "at:"
-				 << ((settings.characterPrinterTypeEnum() == ReceiptsSettings::CharacterPrinteType::Directory)?
-						 settings.characterPrinterDirectory() :
-						 settings.characterPrinterDevice());
-		paint_device = fwk;
-	}
-	// Use screen widget (stable DPI) for layout; QPrinter DPI can change after QPainter::begin() on Windows
-	qf::gui::reports::ReportProcessor rp(fwk);
-	{
-		QF_TIME_SCOPE("setting report and data");
-		auto *plugin = qf::gui::framework::getPlugin<Receipts::ReceiptsPlugin>();
-		if(!rp.setReport(plugin->findReportFile(report_file_name)))
-			return false;
-		for(const auto &[key, val] : report_data.asKeyValueRange()) {
-			rp.setTableData(key, val);
-		}
-	}
-	if(settings.printerTypeEnum() == ReceiptsSettings::PrinterType::GraphicPrinter) {
-		QF_TIME_SCOPE("process graphics");
-		{
-			QF_TIME_SCOPE("process report");
-			rp.process();
-		}
+		QPrinter printer(pi);
+		// printer.setOutputFormat(QPrinter::NativeFormat);
+		qff::MainWindow *fwk = qff::MainWindow::frameWork();
+		// Use screen widget (stable DPI) for layout; QPrinter DPI can change after QPainter::begin() on Windows
+		rp.process(fwk);
+
 		qf::gui::reports::ReportItemMetaPaintReport *doc;
 		{
 			QF_TIME_SCOPE("getting processor output");
@@ -100,10 +87,9 @@ bool ReceiptsPrinter::printReceipt(const QString &report_file_name, const QVaria
 		qf::gui::reports::ReportItemMetaPaint *it = doc->child(0);
 		if(it) {
 			QF_TIME_SCOPE("draw meta-paint");
-			qf::gui::reports::ReportPainter painter(paint_device);
+			qf::gui::reports::ReportPainter painter(&printer);
 			painter.drawMetaPaint(it);
 		}
-		QF_SAFE_DELETE(printer);
 		return true;
 	}
 	if(settings.printerTypeEnum() == ReceiptsSettings::PrinterType::CharacterPrinter) {
@@ -491,29 +477,9 @@ QList<QByteArray> interpretControlCodes(const QList<PrintLine> &lines, const Rec
 QList<QByteArray> ReceiptsPrinter::createPrinterData(const QDomElement &body, const ReceiptsSettings &receipts_settings)
 {
 	DirectPrintContext dpc;
-	//dpc.printerLineWidth = printer_options.characterPrinterLineLength();
 	createPrinterData_helper(body, &dpc, receipts_settings.characterPrinterCodec());
-	/*
-	{
-		QByteArray ba;
-		for(auto d : dpc.line)
-			ba += d.toByteArray();
-		qfInfo() << ba;
-	}
-	*/
 	QList<PrintLine> lines = alignPrinterData(&dpc, receipts_settings);
-#if 0
-	for(auto l : lines) {
-		QByteArray ba;
-		for(auto d : l)
-			ba += d.toByteArray();
-		qfDebug() << ba;
-	}
-#endif
 	QList<QByteArray> ret = interpretControlCodes(lines, receipts_settings);
-	//for(auto ba : ret) {
-	//	qDebug() << ba;
-	//}
 	return ret;
 }
 
