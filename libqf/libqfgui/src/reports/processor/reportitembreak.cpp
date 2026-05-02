@@ -21,7 +21,7 @@ void ReportItemBreak::setSkipFirst(bool is_set)
 	m_breaking = is_set;
 }
 
-ReportItem::PrintResult ReportItemBreak::printMetaPaint(ReportItemMetaPaint *out, const ReportItem::Rect &bounding_rect )
+ReportItem::PrintResult ReportItemBreak::printMetaPaint(QPaintDevice *paint_device, ReportItemMetaPaint *out, const ReportItem::Rect &bounding_rect )
 {
 	qfLogFuncFrame() << "is breaking:" << m_breaking;
 	Q_UNUSED(bounding_rect);
