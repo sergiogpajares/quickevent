@@ -55,59 +55,6 @@ QStringList Application::arguments()
 	return QCoreApplication::arguments();
 }
 
-QJsonDocument Application::profile()
-{
-	if(!m_profileLoaded) {
-		m_profileLoaded = true;
-		const QStringList args = arguments();
-		for(int i=0; i<args.count(); i++) {
-			QString arg = args[i];
-			if(arg == QLatin1String("--profile")) {
-				QString profile_path = args.value(++i);
-				if(!profile_path.isEmpty()) {
-					if(!profile_path.contains('.'))
-						profile_path += ".profile";
-#ifdef Q_OS_UNIX
-					if(!profile_path.contains('/'))
-						profile_path = QCoreApplication::applicationDirPath() + '/' + profile_path;
-#endif
-#ifdef Q_OS_WIN
-					if(!profile_path.contains('\\'))
-						profile_path = QCoreApplication::applicationDirPath() + '/' + profile_path;
-#endif
-					QFile f(profile_path);
-					if(!f.open(QIODevice::ReadOnly)) {
-						qfError() << "Cannot open profile file" << f.fileName() << "for reading.";
-					}
-					else {
-						QByteArray ba = f.readAll();
-						QJsonParseError err;
-						m_profile = QJsonDocument::fromJson(ba, &err);
-						if(err.error != QJsonParseError::NoError) {
-							qfError() << "Error loading profile file" << f.fileName() << err.errorString();
-						}
-					}
-				}
-			}
-		}
-	}
-	return m_profile;
-}
-/*
-bool Application::loadStyleSheet(const QUrl &url)
-{
-	QString css_file_name = url.toLocalFile();
-	QFile f(css_file_name);
-	if(f.open(QFile::ReadOnly)) {
-		QByteArray ba = f.readAll();
-		QString ss = QString::fromUtf8(ba);
-		setStyleSheet(ss);
-		return true;
-	}
-	//qfWarning() << "Cannot open style sheet:" << css_file_name;
-	return false;
-}
-*/
 void Application::loadStyleSheet(const QString &file)
 {
 	QString css_file_name = file;

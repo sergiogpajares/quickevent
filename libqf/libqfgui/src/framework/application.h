@@ -31,15 +31,11 @@ public:
 	MainWindow* frameWork();
 
 	void loadStyleSheet(const QString &file = QString());
-public slots:
+
 	QString applicationDirPath();
 	QString applicationName();
 	QStringList arguments();
 protected:
-	QJsonDocument profile();
-protected:
-	QJsonDocument m_profile;
-	bool m_profileLoaded = false;
 	MainWindow* m_frameWork = nullptr;
 };
 
