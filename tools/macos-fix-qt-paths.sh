@@ -1,7 +1,7 @@
 #!/bin/bash
 # Fix qsqlmon and PostgreSQL Qt framework paths to use bundled frameworks
 # Run this after macdeployqt
-# Usage: ./tools/macos-fix-qsqlmon.sh [bundle-path]
+# Usage: ./tools/macos-fix-qt-paths.sh [bundle-path]
 
 set -e
 
