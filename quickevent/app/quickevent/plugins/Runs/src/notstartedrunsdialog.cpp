@@ -8,7 +8,9 @@
 #include <qf/core/exception.h>
 #include <qf/core/sql/query.h>
 
+#include <QCheckBox>
 #include <QColor>
+#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
@@ -35,8 +37,7 @@ NotStartedRunsDialog::NotStartedRunsDialog(int stage_id, int preselected_class_i
 
 	auto *main_layout = new QVBoxLayout(this);
 	{
-		auto *lbl = new QLabel(tr("Finds running competitors with no sign of having started: no check time, no finish time, "
-								  "no card readout, no punch and no station backup record for their SI card. "
+		auto *lbl = new QLabel(tr("Finds running competitors with none of the ticked signs of having started. "
 								  "Selected runners will be marked as DNS.\n"
 								  "When more runners share an SI card, its records are matched to them by start time. "
 								  "Runners whose records cannot be matched reliably are labelled for manual check and not ticked."));
@@ -58,6 +59,28 @@ NotStartedRunsDialog::NotStartedRunsDialog(int stage_id, int preselected_class_i
 		connect(bt_none, &QPushButton::clicked, this, [this]() { setAllClassesChecked(false); });
 		ly_bt->addWidget(bt_none);
 		ly->addLayout(ly_bt);
+
+		auto *gb = new QGroupBox(tr("Count as started"));
+		auto *ly_gb = new QVBoxLayout(gb);
+		using E = RunsPlugin::StartEvidence;
+		auto add_check_box = [this, ly_gb](const QString &caption, const QString &tool_tip, bool E::*field) {
+			auto *cb = new QCheckBox(caption);
+			cb->setToolTip(tool_tip);
+			cb->setChecked(E{}.*field);
+			connect(cb, &QCheckBox::toggled, this, &NotStartedRunsDialog::updateStatus);
+			ly_gb->addWidget(cb);
+			m_evidenceCheckBoxes << EvidenceCheckBox{cb, field};
+		};
+		add_check_box(tr("Check time"), tr("Check time in the runs table"), &E::checkTime);
+		add_check_box(tr("Clear time"), tr("Clear time in the runs table"), &E::clearTime);
+		add_check_box(tr("Finish time"), tr("Finish time in the runs table"), &E::finishTime);
+		add_check_box(tr("Card readout"), tr("SI card read out at finish"), &E::cardReadout);
+		add_check_box(tr("Radio punches"), tr("Punches received online, e.g. from SRR"), &E::radioPunches);
+		add_check_box(tr("Backup: check stations"), tr("Station backup memory records of check stations"), &E::backupCheck);
+		add_check_box(tr("Backup: clear stations"), tr("Station backup memory records of clear stations"), &E::backupClear);
+		add_check_box(tr("Backup: start stations"), tr("Station backup memory records of start stations"), &E::backupStart);
+		add_check_box(tr("Backup: other stations"), tr("Station backup memory records of finish and control stations and of stations with unknown mode"), &E::backupOther);
+		ly->addWidget(gb);
 		body_layout->addLayout(ly);
 	}
 	{
@@ -74,9 +97,9 @@ NotStartedRunsDialog::NotStartedRunsDialog(int stage_id, int preselected_class_i
 		ly_opts->addWidget(m_edCheckBeforeStartMin);
 		ly_opts->addWidget(new QLabel(tr("before start")));
 		ly_opts->addStretch();
-		auto *bt_find = new QPushButton(tr("&Find runners"));
-		connect(bt_find, &QPushButton::clicked, this, &NotStartedRunsDialog::findRuns);
-		ly_opts->addWidget(bt_find);
+		m_btFind = new QPushButton(tr("&Find runners"));
+		connect(m_btFind, &QPushButton::clicked, this, &NotStartedRunsDialog::findRuns);
+		ly_opts->addWidget(m_btFind);
 		ly->addLayout(ly_opts);
 
 		m_tblRuns = new QTableWidget(0, ColCount);
@@ -143,6 +166,14 @@ QList<int> NotStartedRunsDialog::checkedClassIds() const
 	return ret;
 }
 
+RunsPlugin::StartEvidence NotStartedRunsDialog::startEvidence() const
+{
+	RunsPlugin::StartEvidence ret;
+	for(const auto &ecb : m_evidenceCheckBoxes)
+		ret.*ecb.field = ecb.checkBox->isChecked();
+	return ret;
+}
+
 void NotStartedRunsDialog::findRuns()
 {
 	m_tblRuns->blockSignals(true);
@@ -155,7 +186,7 @@ void NotStartedRunsDialog::findRuns()
 	}
 	QList<RunsPlugin::NotStartedRun> runs;
 	try {
-		runs = getPlugin<RunsPlugin>()->runsWithoutStartEvidence(m_stageId, class_ids
+		runs = getPlugin<RunsPlugin>()->runsWithoutStartEvidence(m_stageId, class_ids, startEvidence()
 																 , qint64(m_edCheckBeforeStartMin->value()) * 60 * 1000);
 	}
 	catch (const qf::core::Exception &e) {
@@ -212,6 +243,8 @@ void NotStartedRunsDialog::updateStatus()
 	m_lblStatus->setText(tr("Found %1 runners without check, %2 checked to be marked as DNS.")
 						 .arg(m_tblRuns->rowCount()).arg(checked_cnt));
 	m_btMarkDns->setEnabled(checked_cnt > 0);
+	// without any sign of start every runner would be found
+	m_btFind->setEnabled(startEvidence().isAny());
 }
 
 void NotStartedRunsDialog::markDns()

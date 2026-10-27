@@ -79,17 +79,34 @@ public:
 		QVariant startTimeMs;
 		SharedCard sharedCard = SharedCard::No;
 	};
-	/// Running runs in the stage without any sign that they started: no check time, no finish time,
-	/// no card readout, no punch and no station backup record for their SI card.
+	/// Which records count as a sign that the runner started
+	struct StartEvidence
+	{
+		bool checkTime = true; ///< runs.checkTimeMs
+		bool clearTime = true; ///< runs.clearTimeMs
+		bool finishTime = true; ///< runs.finishTimeMs
+		bool cardReadout = true; ///< cards
+		bool radioPunches = true; ///< punches
+		bool backupCheck = true; ///< stationsbackup of check stations
+		bool backupClear = true; ///< stationsbackup of clear stations
+		bool backupStart = true; ///< stationsbackup of start stations
+		bool backupOther = true; ///< stationsbackup of other stations: finish, control or unknown mode
+
+		bool isAnyBackup() const { return backupCheck || backupClear || backupStart || backupOther; }
+		bool isAny() const { return checkTime || clearTime || finishTime || cardReadout || radioPunches || isAnyBackup(); }
+	};
+	/// Running runs in the stage without any of the enabled signs that they started.
 	/// Empty class_ids means all classes, class id 0 selects competitors without class.
 	/// When more runners share the SI card, records found only by card number are matched to them by start time,
 	/// check_before_start_ms is the longest expected time between check and start.
-	QList<NotStartedRun> runsWithoutStartEvidence(int stage_id, const QList<int> &class_ids, qint64 check_before_start_ms);
+	QList<NotStartedRun> runsWithoutStartEvidence(int stage_id, const QList<int> &class_ids, const StartEvidence &evidence, qint64 check_before_start_ms);
 	/// Sets the DNS flag on the runs, returns the number of updated runs.
 	int markRunsNotStarted(const QList<int> &run_ids, QObject *source);
 private:
 	/// Matches records of a shared SI card to runners by time. Returns nullopt when a record belongs to run_id (it started).
-	std::optional<NotStartedRun::SharedCard> matchSharedCardRecords(int stage_id, int run_id, int si_id, qint64 check_before_start_ms);
+	std::optional<NotStartedRun::SharedCard> matchSharedCardRecords(int stage_id, int run_id, int si_id, const StartEvidence &evidence, qint64 check_before_start_ms);
+	/// SQL condition on stationsbackup.stationMode selecting the enabled station kinds, empty when all are enabled
+	static QString stationBackupModeCondition(const StartEvidence &evidence);
 public:
 
 	Q_INVOKABLE int courseForRun(int run_id);

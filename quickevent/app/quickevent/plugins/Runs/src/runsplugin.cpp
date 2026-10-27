@@ -22,6 +22,7 @@
 #include <quickevent/core/codedef.h>
 #include <quickevent/core/utils.h>
 #include <quickevent/core/si/punchrecord.h>
+#include <siut/sitask.h>
 #include <quickevent/core/runstatus.h>
 
 #include <qf/gui/framework/application.h>
@@ -196,7 +197,38 @@ void RunsPlugin::onInstalled()
 	Event::services::Service::addService(results_exporter);
 }
 
-QList<RunsPlugin::NotStartedRun> RunsPlugin::runsWithoutStartEvidence(int stage_id, const QList<int> &class_ids, qint64 check_before_start_ms)
+QString RunsPlugin::stationBackupModeCondition(const StartEvidence &evidence)
+{
+	using M = siut::SiStationMode;
+	auto codes = [](std::initializer_list<int> modes) {
+		QStringList ret;
+		for(int m : modes)
+			ret << QString::number(m);
+		return ret;
+	};
+	const QStringList check_modes = codes({M::Check});
+	const QStringList clear_modes = codes({M::Clear, M::ClearOld});
+	const QStringList start_modes = codes({M::Start, M::StartTrigger, M::BeaconStart});
+	if(evidence.backupCheck && evidence.backupClear && evidence.backupStart && evidence.backupOther)
+		return {};
+	QStringList conds;
+	if(evidence.backupCheck)
+		conds << "stationsbackup.stationMode IN (" + check_modes.join(',') + ")";
+	if(evidence.backupClear)
+		conds << "stationsbackup.stationMode IN (" + clear_modes.join(',') + ")";
+	if(evidence.backupStart)
+		conds << "stationsbackup.stationMode IN (" + start_modes.join(',') + ")";
+	if(evidence.backupOther) {
+		// finish, control and records saved before the station mode was known
+		conds << "stationsbackup.stationMode IS NULL OR stationsbackup.stationMode NOT IN ("
+				 + (check_modes + clear_modes + start_modes).join(',') + ")";
+	}
+	if(conds.isEmpty())
+		return QStringLiteral("0=1");
+	return "(" + conds.join(" OR ") + ")";
+}
+
+QList<RunsPlugin::NotStartedRun> RunsPlugin::runsWithoutStartEvidence(int stage_id, const QList<int> &class_ids, const StartEvidence &evidence, qint64 check_before_start_ms)
 {
 	// Each condition below is a sign that the runner started.
 	// Cards and punches without assigned run are matched by SI card number.
@@ -208,15 +240,19 @@ QList<RunsPlugin::NotStartedRun> RunsPlugin::runsWithoutStartEvidence(int stage_
 		return "EXISTS (" + sub.toString() + ")";
 	};
 	const QString has_check = QStringLiteral("runs.checkTimeMs IS NOT NULL");
+	const QString has_clear = QStringLiteral("runs.clearTimeMs IS NOT NULL");
 	const QString has_finish = QStringLiteral("COALESCE(runs.finishTimeMs, 0)<>0");
 	const QString has_assigned_card_readout = QStringLiteral("EXISTS (SELECT 1 FROM cards WHERE cards.runId=runs.id)");
 	const QString has_card_readout = record_exists_for_run(QStringLiteral("cards"));
 	const QString has_punch = record_exists_for_run(QStringLiteral("punches"));
-	const QString has_station_backup = [] {
+	const QString has_station_backup = [&evidence] {
 		qfs::QueryBuilder sub;
 		sub.select("1").from("stationsbackup")
 				.where("stationsbackup.stageId=runs.stageId")
 				.where("stationsbackup.siId=runs.siId");
+		const QString mode_cond = stationBackupModeCondition(evidence);
+		if(!mode_cond.isEmpty())
+			sub.where(mode_cond);
 		return "EXISTS (" + sub.toString() + ")";
 	}();
 	// Another running runner has the same SI card in this stage.
@@ -225,6 +261,25 @@ QList<RunsPlugin::NotStartedRun> RunsPlugin::runsWithoutStartEvidence(int stage_
 		" WHERE sharers.stageId=runs.stageId AND sharers.siId=runs.siId AND sharers.id<>runs.id AND sharers.isRunning))");
 
 	auto not_ = [](const QString &cond) { return "NOT (" + cond + ")"; };
+
+	// signs which belong to the run for sure
+	QStringList trusted_signs;
+	if(evidence.finishTime)
+		trusted_signs << has_finish;
+	if(evidence.cardReadout)
+		trusted_signs << has_assigned_card_readout;
+	// signs found by SI card number, or copied by card number from station backup
+	QStringList card_signs;
+	if(evidence.checkTime)
+		card_signs << has_check;
+	if(evidence.clearTime)
+		card_signs << has_clear;
+	if(evidence.cardReadout)
+		card_signs << has_card_readout;
+	if(evidence.radioPunches)
+		card_signs << has_punch;
+	if(evidence.isAnyBackup())
+		card_signs << has_station_backup;
 
 	qfs::QueryBuilder qb;
 	qb.select2("runs", "id, siId, startTimeMs")
@@ -237,15 +292,15 @@ QList<RunsPlugin::NotStartedRun> RunsPlugin::runsWithoutStartEvidence(int stage_
 			.where("runs.stageId=" QF_IARG(stage_id))
 			.where("runs.isRunning")
 			.where("NOT runs.notStart")
-			.where(not_(has_finish))
-			.where(not_(has_assigned_card_readout))
-			.where(is_card_shared + " OR (" + QStringList{
-					not_(has_check),
-					not_(has_card_readout),
-					not_(has_punch),
-					not_(has_station_backup),
-				}.join(" AND ") + ")")
 			.orderBy("classes.name, competitors.lastName, competitors.firstName");
+	for(const auto &sign : trusted_signs)
+		qb.where(not_(sign));
+	if(!card_signs.isEmpty()) {
+		QStringList no_card_signs;
+		for(const auto &sign : card_signs)
+			no_card_signs << not_(sign);
+		qb.where(is_card_shared + " OR (" + no_card_signs.join(" AND ") + ")");
+	}
 	if(!class_ids.isEmpty()) {
 		QStringList ids;
 		for(int id : class_ids)
@@ -265,8 +320,8 @@ QList<RunsPlugin::NotStartedRun> RunsPlugin::runsWithoutStartEvidence(int stage_
 		r.className = q.value("classes.name").toString();
 		r.competitorName = q.value("competitors.lastName").toString() + ' ' + q.value("competitors.firstName").toString();
 		r.registration = q.value("competitors.registration").toString();
-		if(q.value("cardShared").toBool()) {
-			auto shared_card = matchSharedCardRecords(stage_id, r.runId, r.siId, check_before_start_ms);
+		if(q.value("cardShared").toBool() && !card_signs.isEmpty()) {
+			auto shared_card = matchSharedCardRecords(stage_id, r.runId, r.siId, evidence, check_before_start_ms);
 			if(!shared_card)
 				continue; // a record of the shared card belongs to this runner
 			r.sharedCard = *shared_card;
@@ -276,7 +331,7 @@ QList<RunsPlugin::NotStartedRun> RunsPlugin::runsWithoutStartEvidence(int stage_
 	return ret;
 }
 
-std::optional<RunsPlugin::NotStartedRun::SharedCard> RunsPlugin::matchSharedCardRecords(int stage_id, int run_id, int si_id, qint64 check_before_start_ms)
+std::optional<RunsPlugin::NotStartedRun::SharedCard> RunsPlugin::matchSharedCardRecords(int stage_id, int run_id, int si_id, const StartEvidence &evidence, qint64 check_before_start_ms)
 {
 	using SharedCard = NotStartedRun::SharedCard;
 	static constexpr int DOUBT = -1;
@@ -334,36 +389,50 @@ std::optional<RunsPlugin::NotStartedRun::SharedCard> RunsPlugin::matchSharedCard
 		return event_plugin->msecToStageStartAM(si_time_sec.toInt(), 0, stage_id);
 	};
 
-	// check time can be copied from another runner by station backup import
-	q.execThrow("SELECT checkTimeMs FROM runs WHERE id=" QF_IARG(run_id) " AND checkTimeMs IS NOT NULL");
-	if(q.next())
-		add_record({q.value(0).toLongLong()});
+	// check and clear times can be copied from another runner by station backup import
+	for(const auto &[enabled, field] : {std::pair{evidence.checkTime, "checkTimeMs"}, std::pair{evidence.clearTime, "clearTimeMs"}}) {
+		if(!enabled)
+			continue;
+		q.execThrow(QStringLiteral("SELECT %1 FROM runs WHERE id=%2 AND %1 IS NOT NULL").arg(field).arg(run_id));
+		if(q.next())
+			add_record({q.value(0).toLongLong()});
+	}
 
-	const QDateTime stage_start = event_plugin->stageStartDateTime(stage_id);
-	q.execThrow("SELECT punchDateTime FROM stationsbackup WHERE stageId=" QF_IARG(stage_id) " AND siId=" QF_IARG(si_id));
-	while(q.next()) {
-		QDateTime dt = q.value(0).toDateTime();
-		add_record({dt.isValid()? std::optional<qint64>(stage_start.msecsTo(dt)): std::nullopt});
+	if(evidence.isAnyBackup()) {
+		const QDateTime stage_start = event_plugin->stageStartDateTime(stage_id);
+		QString qs = "SELECT punchDateTime FROM stationsbackup WHERE stageId=" QF_IARG(stage_id) " AND siId=" QF_IARG(si_id);
+		const QString mode_cond = stationBackupModeCondition(evidence);
+		if(!mode_cond.isEmpty())
+			qs += " AND " + mode_cond;
+		q.execThrow(qs);
+		while(q.next()) {
+			QDateTime dt = q.value(0).toDateTime();
+			add_record({dt.isValid()? std::optional<qint64>(stage_start.msecsTo(dt)): std::nullopt});
+		}
 	}
 
 	// readouts assigned to other runners are trusted, the card reader matches them by time already
-	q.execThrow("SELECT checkTime, startTime, finishTime FROM cards WHERE stageId=" QF_IARG(stage_id) " AND siId=" QF_IARG(si_id)
-				" AND COALESCE(runId, 0)=0");
-	while(q.next()) {
-		QList<std::optional<qint64>> times;
-		for(int i = 0; i < 3; i++) {
-			if(auto t = card_time_ms(q.value(i)))
-				times << t;
+	if(evidence.cardReadout) {
+		q.execThrow("SELECT checkTime, startTime, finishTime FROM cards WHERE stageId=" QF_IARG(stage_id) " AND siId=" QF_IARG(si_id)
+					" AND COALESCE(runId, 0)=0");
+		while(q.next()) {
+			QList<std::optional<qint64>> times;
+			for(int i = 0; i < 3; i++) {
+				if(auto t = card_time_ms(q.value(i)))
+					times << t;
+			}
+			if(times.isEmpty())
+				times << std::nullopt;
+			add_record(times);
 		}
-		if(times.isEmpty())
-			times << std::nullopt;
-		add_record(times);
 	}
 
 	// radio punches are assigned to the first runner with the card, so their run id is not trusted
-	q.execThrow("SELECT timeMs FROM punches WHERE stageId=" QF_IARG(stage_id) " AND siId=" QF_IARG(si_id));
-	while(q.next())
-		add_record({q.value(0).isNull()? std::nullopt: std::optional<qint64>(q.value(0).toLongLong())});
+	if(evidence.radioPunches) {
+		q.execThrow("SELECT timeMs FROM punches WHERE stageId=" QF_IARG(stage_id) " AND siId=" QF_IARG(si_id));
+		while(q.next())
+			add_record({q.value(0).isNull()? std::nullopt: std::optional<qint64>(q.value(0).toLongLong())});
+	}
 
 	if(record_owners.contains(run_id))
 		return std::nullopt;
