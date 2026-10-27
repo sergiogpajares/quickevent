@@ -377,8 +377,8 @@ void RunsWidget::settleDownInPartWidget(::PartWidget *part_widget)
 	{
 		qfw::Action *a_tools = part_widget->menuBar()->actionForPath("tools", true);
 		a_tools->setText(tr("&Tools"));
-		auto *a = new qfw::Action(tr("Mark &DNS for runners without check..."));
-		a->setToolTip(tr("Find runners who did not check, read out or punch, and mark them as DNS"));
+		auto *a = new qfw::Action(tr("Find &DNS runners automatically..."));
+		a->setToolTip(tr("Find runners without any sign of start, like check, readout or punch, and mark them as DNS"));
 		connect(a, &qfw::Action::triggered, this, &RunsWidget::markNotStartedRuns);
 		a_tools->addActionInto(a);
 	}

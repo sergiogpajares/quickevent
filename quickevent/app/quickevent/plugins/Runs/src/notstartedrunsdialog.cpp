@@ -34,7 +34,7 @@ NotStartedRunsDialog::NotStartedRunsDialog(int stage_id, int preselected_class_i
 	: Super(parent)
 	, m_stageId(stage_id)
 {
-	setWindowTitle(tr("Runners without check - stage %1").arg(stage_id));
+	setWindowTitle(tr("Find DNS runners automatically - stage %1").arg(stage_id));
 	resize(900, 600);
 
 	// options are shared by all clients of the event, another client may have changed them
@@ -262,7 +262,7 @@ QList<int> NotStartedRunsDialog::checkedRunIds() const
 void NotStartedRunsDialog::updateStatus()
 {
 	const auto checked_cnt = checkedRunIds().size();
-	m_lblStatus->setText(tr("Found %1 runners without check, %2 checked to be marked as DNS.")
+	m_lblStatus->setText(tr("Found %1 runners without any sign of start, %2 checked to be marked as DNS.")
 						 .arg(m_tblRuns->rowCount()).arg(checked_cnt));
 	m_btMarkDns->setEnabled(checked_cnt > 0);
 	// without any sign of start every runner would be found
