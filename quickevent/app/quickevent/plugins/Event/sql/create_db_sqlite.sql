@@ -130,6 +130,7 @@ CREATE TABLE runs (
 	courseId integer,
 	relayId integer,
 	corridorTime timestamp,
+	clearTimeMs integer,
 	checkTimeMs integer,
 	startTimeMs integer,
 	finishTimeMs integer,
@@ -155,6 +156,8 @@ CREATE INDEX runs_ix1 ON runs (relayId, leg);
 CREATE INDEX runs_ix2 ON runs (stageId, siId);
 -- comments not suported for driver: SQLITE
 -- COMMENT ON COLUMN runs.corridorTime IS 'DateTime when competitor entered start corridor. (Experimental)';
+-- comments not suported for driver: SQLITE
+-- COMMENT ON COLUMN runs.clearTimeMs IS 'in miliseconds, from clear station backup memory';
 -- comments not suported for driver: SQLITE
 -- COMMENT ON COLUMN runs.checkTimeMs IS 'in miliseconds';
 -- comments not suported for driver: SQLITE
@@ -298,8 +301,11 @@ CREATE TABLE stationsbackup (
 	siId integer,
 	punchDateTime timestamp,
 	cardErr boolean,
+	stationMode integer,
 	CONSTRAINT stationsbackup_unique0 UNIQUE (stageId, stationNumber, siId, punchDateTime)
 );
+-- comments not suported for driver: SQLITE
+-- COMMENT ON COLUMN stationsbackup.stationMode IS 'SPORTident station mode: 2 control, 3 start, 4 finish, 5 readout, 6 clear old, 7 clear, 10 check, 11 printout, 12 start trigger, 13 finish trigger, 18 to 21 SIAC beacon control, start, finish, readout';
 ;
 -- create table: lentcards;
 CREATE TABLE lentcards (
@@ -346,4 +352,4 @@ CREATE TABLE reports (
 ;
 -- insert into table: config;
 INSERT INTO config (ckey, cname, cvalue, ctype) VALUES 
-('db.version', 'Data version', '30800', 'int');
+('db.version', 'Data version', '30900', 'int');

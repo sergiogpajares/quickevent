@@ -180,6 +180,9 @@ Schema {
 				Field { name: 'corridorTime'; type: DateTime {}
 					comment: 'DateTime when competitor entered start corridor. (Experimental)'
 				},
+				Field { name: 'clearTimeMs'; type: Int {}
+					comment: 'in miliseconds, from clear station backup memory'
+				},
 				Field { name: 'checkTimeMs'; type: Int {}
 					comment: 'in miliseconds'
 				},
@@ -464,7 +467,10 @@ Schema {
 				Field { name: 'stationNumber'; type: Int { } },
 				Field { name: 'siId'; type: Int {} },
 				Field { name: 'punchDateTime'; type: DateTime {} },
-				Field { name: 'cardErr'; type: Boolean {} }
+				Field { name: 'cardErr'; type: Boolean {} },
+				Field { name: 'stationMode'; type: Int {}
+					comment: 'SPORTident station mode: 2 control, 3 start, 4 finish, 5 readout, 6 clear old, 7 clear, 10 check, 11 printout, 12 start trigger, 13 finish trigger, 18 to 21 SIAC beacon control, start, finish, readout'
+				}
 			]
 			indexes: [
 				Index {fields: ['stageId', 'stationNumber', 'siId', 'punchDateTime']; unique: true }

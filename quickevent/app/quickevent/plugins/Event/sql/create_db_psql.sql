@@ -125,6 +125,7 @@ CREATE TABLE {{eventId}}.runs (
 	courseId integer,
 	relayId integer,
 	corridorTime timestamp with time zone,
+	clearTimeMs integer,
 	checkTimeMs integer,
 	startTimeMs integer,
 	finishTimeMs integer,
@@ -149,6 +150,7 @@ CREATE TABLE {{eventId}}.runs (
 CREATE INDEX runs_ix1 ON {{eventId}}.runs (relayId, leg);
 CREATE INDEX runs_ix2 ON {{eventId}}.runs (stageId, siId);
 COMMENT ON COLUMN {{eventId}}.runs.corridorTime IS 'DateTime when competitor entered start corridor. (Experimental)';
+COMMENT ON COLUMN {{eventId}}.runs.clearTimeMs IS 'in miliseconds, from clear station backup memory';
 COMMENT ON COLUMN {{eventId}}.runs.checkTimeMs IS 'in miliseconds';
 COMMENT ON COLUMN {{eventId}}.runs.startTimeMs IS 'in miliseconds';
 COMMENT ON COLUMN {{eventId}}.runs.finishTimeMs IS 'in miliseconds';
@@ -269,8 +271,10 @@ CREATE TABLE {{eventId}}.stationsbackup (
 	siId integer,
 	punchDateTime timestamp with time zone,
 	cardErr boolean,
+	stationMode integer,
 	CONSTRAINT stationsbackup_unique0 UNIQUE (stageId, stationNumber, siId, punchDateTime)
 );
+COMMENT ON COLUMN {{eventId}}.stationsbackup.stationMode IS 'SPORTident station mode: 2 control, 3 start, 4 finish, 5 readout, 6 clear old, 7 clear, 10 check, 11 printout, 12 start trigger, 13 finish trigger, 18 to 21 SIAC beacon control, start, finish, readout';
 ;
 -- create table: {{eventId}}.lentcards;
 CREATE TABLE {{eventId}}.lentcards (
@@ -316,4 +320,4 @@ CREATE TABLE {{eventId}}.reports (
 ;
 -- insert into table: {{eventId}}.config;
 INSERT INTO {{eventId}}.config (ckey, cname, cvalue, ctype) VALUES 
-('db.version', 'Data version', '30800', 'int');
+('db.version', 'Data version', '30900', 'int');
