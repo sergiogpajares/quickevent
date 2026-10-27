@@ -6,6 +6,7 @@
 #include "services/ofeed/ofeedconfig.h"
 #include "services/radiosender/radiosenderconfig.h"
 #include <plugins/Receipts/src/receiptsconfig.h>
+#include "dnsfinderconfig.h"
 
 #include <QDateTime>
 #include <QObject>
@@ -43,6 +44,10 @@ public:
 	void setRadioSenderConfig(const services::RadioSenderConfig &config);
 	const QxConfig &qxConfig() const { return m_qxConfig; }
 	void setQxConfig(const QxConfig &config);
+	const DnsFinderConfig &dnsFinderConfig() const { return m_dnsFinderConfig; }
+	void setDnsFinderConfig(const DnsFinderConfig &config);
+	/// Reads the DNS finder config again, other clients may have changed it
+	void reloadDnsFinderConfig();
 
 private:
 	void save(const QString &prefix, const QVariantMap &data);
@@ -56,6 +61,7 @@ private:
 	EventConfig m_eventConfig;
 	QxConfig m_qxConfig;
 	services::RadioSenderConfig m_radioSenderConfig;
+	DnsFinderConfig m_dnsFinderConfig;
 
 	int m_dbVersion = 0;
 };

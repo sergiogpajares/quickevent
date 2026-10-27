@@ -26,6 +26,7 @@ constexpr auto OFEED = "ofeed";
 constexpr auto ORESULTS = "oresults";
 constexpr auto RADIO_SENDER = "radioSender";
 constexpr auto QX = "qx";
+constexpr auto DNS_FINDER = "dnsFinder";
 
 QVariantMap changedValues(const QVariantMap &old_values, const QVariantMap &new_values)
 {
@@ -84,7 +85,7 @@ void AppDbConfig::load()
 			QString type = q.value(2).toString();
 			QVariant v = qf::core::Utils::retypeStringValue(val.toString(), type);
 			const auto group = key.section('.', 0, 0);
-			if (group == EVENT || group == QX || group == RADIO_SENDER) {
+			if (group == EVENT || group == QX || group == RADIO_SENDER || group == DNS_FINDER) {
 				set_group_value(group, key.section('.', 1), v);
 			} else if (group == STAGE || group == RECEIPTS || group == ORESULTS || group == OFEED) {
 				auto stage_id = key.section('.', 1, 1).toInt();
@@ -100,6 +101,7 @@ void AppDbConfig::load()
 
 	m_qxConfig = QxConfig::fromVariantMap(config.value(QX).toMap());
 	m_radioSenderConfig = services::RadioSenderConfig::fromVariantMap(config.value(RADIO_SENDER).toMap());
+	m_dnsFinderConfig = DnsFinderConfig::fromVariantMap(config.value(DNS_FINDER).toMap());
 	m_eventConfig = EventConfig::fromVariantMap(config.value(EVENT).toMap());
 	quickevent::core::og::TimeMs::setDefaultTimeMeasurementPrecision(m_eventConfig.timeMeasurementPrecision);
 
@@ -170,6 +172,26 @@ void AppDbConfig::save(const QString &prefix, const QVariantMap &data)
 			q_ins.exec(qf::core::Exception::Throw);
 		}
 	}
+}
+
+void AppDbConfig::setDnsFinderConfig(const DnsFinderConfig &config)
+{
+	const QVariantMap changed_values = changedValues(m_dnsFinderConfig.toVariantMap(), config.toVariantMap());
+	m_dnsFinderConfig = config;
+	save(DNS_FINDER, changed_values);
+}
+
+void AppDbConfig::reloadDnsFinderConfig()
+{
+	using namespace qf::core::sql;
+	Query q(Connection::forName());
+	q.exec(QStringLiteral("SELECT ckey, cvalue, ctype FROM config WHERE ckey LIKE '%1.%'").arg(DNS_FINDER), qf::core::Exception::Throw);
+	QVariantMap values;
+	while(q.next()) {
+		const QString key = q.value(0).toString().section('.', 1);
+		values[key] = qf::core::Utils::retypeStringValue(q.value(1).toString(), q.value(2).toString());
+	}
+	m_dnsFinderConfig = DnsFinderConfig::fromVariantMap(values);
 }
 
 void AppDbConfig::setRadioSenderConfig(const services::RadioSenderConfig &config)

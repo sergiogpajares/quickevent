@@ -1,6 +1,8 @@
 #include "notstartedrunsdialog.h"
 #include "runsplugin.h"
 
+#include <plugins/Event/src/eventplugin.h>
+
 #include <quickevent/core/og/timems.h>
 
 #include <qf/gui/framework/mainwindow.h>
@@ -35,6 +37,11 @@ NotStartedRunsDialog::NotStartedRunsDialog(int stage_id, int preselected_class_i
 	setWindowTitle(tr("Runners without check - stage %1").arg(stage_id));
 	resize(900, 600);
 
+	// options are shared by all clients of the event, another client may have changed them
+	auto &app_db_config = getPlugin<Event::EventPlugin>()->appDbConfig();
+	app_db_config.reloadDnsFinderConfig();
+	const Event::DnsFinderConfig config = app_db_config.dnsFinderConfig();
+
 	auto *main_layout = new QVBoxLayout(this);
 	{
 		auto *lbl = new QLabel(tr("Finds running competitors with none of the ticked signs of having started. "
@@ -63,11 +70,12 @@ NotStartedRunsDialog::NotStartedRunsDialog(int stage_id, int preselected_class_i
 		auto *gb = new QGroupBox(tr("Count as started"));
 		auto *ly_gb = new QVBoxLayout(gb);
 		using E = RunsPlugin::StartEvidence;
-		auto add_check_box = [this, ly_gb](const QString &caption, const QString &tool_tip, bool E::*field) {
+		auto add_check_box = [this, ly_gb, &config](const QString &caption, const QString &tool_tip, bool E::*field) {
 			auto *cb = new QCheckBox(caption);
 			cb->setToolTip(tool_tip);
-			cb->setChecked(E{}.*field);
+			cb->setChecked(config.evidence.*field);
 			connect(cb, &QCheckBox::toggled, this, &NotStartedRunsDialog::updateStatus);
+			connect(cb, &QCheckBox::toggled, this, &NotStartedRunsDialog::saveConfig);
 			ly_gb->addWidget(cb);
 			m_evidenceCheckBoxes << EvidenceCheckBox{cb, field};
 		};
@@ -90,7 +98,8 @@ NotStartedRunsDialog::NotStartedRunsDialog(int stage_id, int preselected_class_i
 		ly_opts->addWidget(lbl_check);
 		m_edCheckBeforeStartMin = new QSpinBox();
 		m_edCheckBeforeStartMin->setRange(1, 120);
-		m_edCheckBeforeStartMin->setValue(10);
+		m_edCheckBeforeStartMin->setValue(config.checkBeforeStartMin);
+		connect(m_edCheckBeforeStartMin, &QSpinBox::valueChanged, this, &NotStartedRunsDialog::saveConfig);
 		m_edCheckBeforeStartMin->setSuffix(tr(" min"));
 		m_edCheckBeforeStartMin->setToolTip(tr("Used to match records of a shared SI card to its runners by start time"));
 		lbl_check->setBuddy(m_edCheckBeforeStartMin);
@@ -164,6 +173,19 @@ QList<int> NotStartedRunsDialog::checkedClassIds() const
 			ret << it->data(Qt::UserRole).toInt();
 	}
 	return ret;
+}
+
+void NotStartedRunsDialog::saveConfig()
+{
+	Event::DnsFinderConfig config;
+	config.evidence = startEvidence();
+	config.checkBeforeStartMin = m_edCheckBeforeStartMin->value();
+	try {
+		getPlugin<Event::EventPlugin>()->appDbConfig().setDnsFinderConfig(config);
+	}
+	catch (const qf::core::Exception &e) {
+		qf::gui::dialogs::MessageBox::showException(this, e);
+	}
 }
 
 RunsPlugin::StartEvidence NotStartedRunsDialog::startEvidence() const

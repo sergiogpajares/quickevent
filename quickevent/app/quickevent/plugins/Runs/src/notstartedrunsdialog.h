@@ -29,6 +29,8 @@ private:
 	void setAllClassesChecked(bool checked);
 	QList<int> checkedClassIds() const;
 	RunsPlugin::StartEvidence startEvidence() const;
+	/// stores the options in the event, so they are shared with other clients
+	void saveConfig();
 	void findRuns();
 	QList<int> checkedRunIds() const;
 	void updateStatus();

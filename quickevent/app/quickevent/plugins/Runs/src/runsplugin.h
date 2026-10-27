@@ -7,6 +7,8 @@
 
 #include <qf/gui/framework/plugin.h>
 
+#include <plugins/Event/src/dnsfinderconfig.h>
+
 #include <optional>
 
 #include <qf/core/utils.h>
@@ -79,22 +81,7 @@ public:
 		QVariant startTimeMs;
 		SharedCard sharedCard = SharedCard::No;
 	};
-	/// Which records count as a sign that the runner started
-	struct StartEvidence
-	{
-		bool checkTime = true; ///< runs.checkTimeMs
-		bool clearTime = true; ///< runs.clearTimeMs
-		bool finishTime = true; ///< runs.finishTimeMs
-		bool cardReadout = true; ///< cards
-		bool radioPunches = true; ///< punches
-		bool backupCheck = true; ///< stationsbackup of check stations
-		bool backupClear = true; ///< stationsbackup of clear stations
-		bool backupStart = true; ///< stationsbackup of start stations
-		bool backupOther = true; ///< stationsbackup of other stations: finish, control or unknown mode
-
-		bool isAnyBackup() const { return backupCheck || backupClear || backupStart || backupOther; }
-		bool isAny() const { return checkTime || clearTime || finishTime || cardReadout || radioPunches || isAnyBackup(); }
-	};
+	using StartEvidence = Event::StartEvidence;
 	/// Running runs in the stage without any of the enabled signs that they started.
 	/// Empty class_ids means all classes, class id 0 selects competitors without class.
 	/// When more runners share the SI card, records found only by card number are matched to them by start time,
