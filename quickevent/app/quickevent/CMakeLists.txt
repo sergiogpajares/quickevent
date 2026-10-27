@@ -163,6 +163,7 @@ add_executable(quickevent
 	plugins/Runs/src/findrunnerwidget.ui
 
 
+	plugins/Runs/src/notstartedrunsdialog.cpp
 	plugins/Runs/src/printawardsoptionsdialogwidget.cpp
 	plugins/Runs/src/printawardsoptionsdialogwidget.ui
 	plugins/Runs/src/runflagsdialog.cpp

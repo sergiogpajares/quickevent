@@ -2,6 +2,7 @@
 #include "ui_runswidget.h"
 #include "runstablemodel.h"
 #include "runsplugin.h"
+#include "notstartedrunsdialog.h"
 
 #include <plugins/Competitors/src/competitorwidget.h>
 #include <plugins/Competitors/src/competitordocument.h>
@@ -137,6 +138,16 @@ void RunsWidget::reload()
 	int stage_id = is_relays? m_cbxLeg->currentData().toInt(): selectedStageId();
 	int class_id = m_cbxClasses->currentData().toInt();
 	ui->wRunsTableWidget->reload(stage_id, class_id, m_chkShowOffRace->isChecked(), QString(), 0, m_chkShowOnTrack->isChecked());
+}
+
+void RunsWidget::markNotStartedRuns()
+{
+	if(!getPlugin<EventPlugin>()->isEventOpen())
+		return;
+	Runs::NotStartedRunsDialog dlg(selectedStageId(), m_cbxClasses->currentData().toInt(), this);
+	dlg.exec();
+	if(dlg.markedCount() > 0)
+		reload();
 }
 
 void RunsWidget::settleDownInPartWidget(::PartWidget *part_widget)
@@ -363,6 +374,15 @@ void RunsWidget::settleDownInPartWidget(::PartWidget *part_widget)
 		}
 	}
 
+	{
+		qfw::Action *a_tools = part_widget->menuBar()->actionForPath("tools", true);
+		a_tools->setText(tr("&Tools"));
+		auto *a = new qfw::Action(tr("Mark &DNS for runners without check..."));
+		a->setToolTip(tr("Find runners who did not check, read out or punch, and mark them as DNS"));
+		connect(a, &qfw::Action::triggered, this, &RunsWidget::markNotStartedRuns);
+		a_tools->addActionInto(a);
+	}
+
 	qfw::ToolBar *main_tb = part_widget->toolBar("main", true);
 	//main_tb->addAction(m_actCommOpen);
 	{
@@ -447,7 +467,7 @@ void RunsWidget::settleDownInPartWidget(::PartWidget *part_widget)
 	auto updateMenuEnabled = [part_widget]() {
 		auto *ep = getPlugin<EventPlugin>();
 		bool enabled = !(ep->isEventOpen() && ep->appDbConfig().eventConfig().isRelays());
-		for(const char *path : {"print", "import", "export"}) {
+		for(const char *path : {"print", "import", "export", "tools"}) {
 			if(auto *a = part_widget->menuBar()->actionForPath(path)) {
 				a->setEnabled(enabled);
 			}

@@ -53,6 +53,7 @@ public:
 	void editCompetitorOnPunch(int siid);
 private:
 	void report_competitorsStatistics();
+	void markNotStartedRuns();
 
 	void editCompetitor_helper(const QVariant &id, int mode, int siid);
 
