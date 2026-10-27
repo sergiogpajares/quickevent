@@ -24,6 +24,7 @@ public:
 		col_runs_license,
 		col_runs_siId,
 		col_runs_corridorTime,
+		col_runs_clearTimeMs,
 		col_runs_checkTimeMs,
 		col_runs_startTimeMs,
 		col_runs_startGateTime,

@@ -43,6 +43,7 @@ RunsTableModel::RunsTableModel(QObject *parent)
 	setColumn(col_runs_license, ColumnDefinition("licence", tr("Lic")).setToolTip(tr("License")));
 	setColumn(col_runs_siId, ColumnDefinition("runs.siId", tr("SI")).setToolTip(tr("Run SI")).setCastType(qMetaTypeId<quickevent::core::si::SiId>()));
 	setColumn(col_runs_corridorTime, ColumnDefinition("runs.corridorTime", tr("Corridor")).setToolTip(tr("Time when the competitor entered start corridor")).setFormat(QStringLiteral("dd.MM.yyyy hh:mm:ss")));
+	setColumn(col_runs_clearTimeMs, ColumnDefinition("runs.clearTimeMs", tr("Clear")).setToolTip(tr("Time when the SI card was cleared")).setCastType(qMetaTypeId<quickevent::core::og::TimeMs>()));
 	setColumn(col_runs_checkTimeMs, ColumnDefinition("runs.checkTimeMs", tr("Check")).setCastType(qMetaTypeId<quickevent::core::og::TimeMs>()));
 	setColumn(col_runs_startTimeMs, ColumnDefinition("runs.startTimeMs", tr("Start")).setCastType(qMetaTypeId<quickevent::core::og::TimeMs>()));
 	setColumn(col_runs_startGateTime, ColumnDefinition("runs.startGateTime", tr("Start gate")));
@@ -97,6 +98,7 @@ QVariant RunsTableModel::data(const QModelIndex &index, int role) const
 		return Super::data(index, role);
 	}
 	if((index.column() == col_runs_startTimeMs
+	|| index.column() == col_runs_clearTimeMs
 	|| index.column() == col_runs_checkTimeMs
 	|| index.column() == col_runs_finishTimeMs
 	|| index.column() == col_runs_timeMs)
