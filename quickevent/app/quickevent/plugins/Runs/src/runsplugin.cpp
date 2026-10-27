@@ -2406,7 +2406,7 @@ void RunsPlugin::report_nStagesAwards()
 	tt.setValue("stageStart", getPlugin<EventPlugin>()->stageStartDateTime(opts.value("stageId").toInt()));
 
 	if(rep_path.endsWith(QStringLiteral(".typ"))) {
-		auto [typ, images] = AwardDesigner::loadTypstTemplate(findReportFile(rep_path));
+		auto [typ, images] = AwardDesigner::loadTypstTemplate(Plugin::reportFileCache()->localReportFile(rep_path));
 		if(typ.isEmpty()) {
 			qfWarning() << "Cannot load Typst award template:" << rep_path;
 			return;
