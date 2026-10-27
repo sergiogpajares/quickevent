@@ -7,6 +7,8 @@
 
 #include <qf/gui/framework/plugin.h>
 
+#include <optional>
+
 #include <qf/core/utils.h>
 #include <qf/core/utils/table.h>
 #include <qf/core/utils/treetable.h>
@@ -61,6 +63,34 @@ public:
 	const qf::core::utils::Table& runnersTable(int stage_id);
 	Q_SLOT void clearRunnersTableCache();
 	void setCompetitorRunsSiId(int competitor_id, int stage_id, int si_id, bool use_in_next_stages, QObject *source);
+
+	struct NotStartedRun
+	{
+		enum class SharedCard {
+			No, ///< card is not shared with another runner in the stage
+			TimeMatched, ///< records of the shared card were matched by time to the other runners
+			ManualCheck, ///< records of the shared card cannot be matched to runners reliably
+		};
+		int runId = 0;
+		int siId = 0;
+		QString className;
+		QString competitorName;
+		QString registration;
+		QVariant startTimeMs;
+		SharedCard sharedCard = SharedCard::No;
+	};
+	/// Running runs in the stage without any sign that they started: no check time, no finish time,
+	/// no card readout, no punch and no station backup record for their SI card.
+	/// Empty class_ids means all classes, class id 0 selects competitors without class.
+	/// When more runners share the SI card, records found only by card number are matched to them by start time,
+	/// check_before_start_ms is the longest expected time between check and start.
+	QList<NotStartedRun> runsWithoutStartEvidence(int stage_id, const QList<int> &class_ids, qint64 check_before_start_ms);
+	/// Sets the DNS flag on the runs, returns the number of updated runs.
+	int markRunsNotStarted(const QList<int> &run_ids, QObject *source);
+private:
+	/// Matches records of a shared SI card to runners by time. Returns nullopt when a record belongs to run_id (it started).
+	std::optional<NotStartedRun::SharedCard> matchSharedCardRecords(int stage_id, int run_id, int si_id, qint64 check_before_start_ms);
+public:
 
 	Q_INVOKABLE int courseForRun(int run_id);
 	int courseForRelay(int relay_number, int leg);

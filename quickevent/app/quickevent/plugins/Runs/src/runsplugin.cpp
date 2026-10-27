@@ -196,6 +196,194 @@ void RunsPlugin::onInstalled()
 	Event::services::Service::addService(results_exporter);
 }
 
+QList<RunsPlugin::NotStartedRun> RunsPlugin::runsWithoutStartEvidence(int stage_id, const QList<int> &class_ids, qint64 check_before_start_ms)
+{
+	// Each condition below is a sign that the runner started.
+	// Cards and punches without assigned run are matched by SI card number.
+	auto record_exists_for_run = [](const QString &table) {
+		qfs::QueryBuilder sub;
+		sub.select("1").from(table)
+				.where(table + ".stageId=runs.stageId")
+				.where(QStringLiteral("(%1.runId=runs.id OR (COALESCE(%1.runId, 0)=0 AND %1.siId=runs.siId))").arg(table));
+		return "EXISTS (" + sub.toString() + ")";
+	};
+	const QString has_check = QStringLiteral("runs.checkTimeMs IS NOT NULL");
+	const QString has_finish = QStringLiteral("COALESCE(runs.finishTimeMs, 0)<>0");
+	const QString has_assigned_card_readout = QStringLiteral("EXISTS (SELECT 1 FROM cards WHERE cards.runId=runs.id)");
+	const QString has_card_readout = record_exists_for_run(QStringLiteral("cards"));
+	const QString has_punch = record_exists_for_run(QStringLiteral("punches"));
+	const QString has_station_backup = [] {
+		qfs::QueryBuilder sub;
+		sub.select("1").from("stationsbackup")
+				.where("stationsbackup.stageId=runs.stageId")
+				.where("stationsbackup.siId=runs.siId");
+		return "EXISTS (" + sub.toString() + ")";
+	}();
+	// Another running runner has the same SI card in this stage.
+	// Records found by card number cannot be trusted then, they are matched by time later.
+	const QString is_card_shared = QStringLiteral("(runs.siId>0 AND EXISTS (SELECT 1 FROM runs AS sharers"
+		" WHERE sharers.stageId=runs.stageId AND sharers.siId=runs.siId AND sharers.id<>runs.id AND sharers.isRunning))");
+
+	auto not_ = [](const QString &cond) { return "NOT (" + cond + ")"; };
+
+	qfs::QueryBuilder qb;
+	qb.select2("runs", "id, siId, startTimeMs")
+			.select2("competitors", "lastName, firstName, registration")
+			.select2("classes", "name")
+			.select("CASE WHEN " + is_card_shared + " THEN 1 ELSE 0 END AS cardShared")
+			.from("runs")
+			.join("runs.competitorId", "competitors.id", qfs::QueryBuilder::INNER_JOIN)
+			.join("competitors.classId", "classes.id")
+			.where("runs.stageId=" QF_IARG(stage_id))
+			.where("runs.isRunning")
+			.where("NOT runs.notStart")
+			.where(not_(has_finish))
+			.where(not_(has_assigned_card_readout))
+			.where(is_card_shared + " OR (" + QStringList{
+					not_(has_check),
+					not_(has_card_readout),
+					not_(has_punch),
+					not_(has_station_backup),
+				}.join(" AND ") + ")")
+			.orderBy("classes.name, competitors.lastName, competitors.firstName");
+	if(!class_ids.isEmpty()) {
+		QStringList ids;
+		for(int id : class_ids)
+			ids << QString::number(id);
+		// class id 0 stands for competitors without class
+		qb.where(QStringLiteral("COALESCE(competitors.classId, 0) IN (%1)").arg(ids.join(',')));
+	}
+
+	QList<NotStartedRun> ret;
+	qfs::Query q;
+	q.execThrow(qb.toString());
+	while(q.next()) {
+		NotStartedRun r;
+		r.runId = q.value("runs.id").toInt();
+		r.siId = q.value("runs.siId").toInt();
+		r.startTimeMs = q.value("runs.startTimeMs");
+		r.className = q.value("classes.name").toString();
+		r.competitorName = q.value("competitors.lastName").toString() + ' ' + q.value("competitors.firstName").toString();
+		r.registration = q.value("competitors.registration").toString();
+		if(q.value("cardShared").toBool()) {
+			auto shared_card = matchSharedCardRecords(stage_id, r.runId, r.siId, check_before_start_ms);
+			if(!shared_card)
+				continue; // a record of the shared card belongs to this runner
+			r.sharedCard = *shared_card;
+		}
+		ret << r;
+	}
+	return ret;
+}
+
+std::optional<RunsPlugin::NotStartedRun::SharedCard> RunsPlugin::matchSharedCardRecords(int stage_id, int run_id, int si_id, qint64 check_before_start_ms)
+{
+	using SharedCard = NotStartedRun::SharedCard;
+	static constexpr int DOUBT = -1;
+
+	// Runners sharing the card ordered by start. A record belongs to the runner with the latest start
+	// such that the record is not more than check_before_start_ms before it:
+	// runner i owns times in [start(i) - check_before_start_ms, start(i+1) - check_before_start_ms)
+	struct Sharer { int runId; qint64 startMs; };
+	QList<Sharer> sharers;
+	bool all_starts_known = true;
+	qfs::Query q;
+	q.execThrow("SELECT id, startTimeMs FROM runs WHERE stageId=" QF_IARG(stage_id) " AND siId=" QF_IARG(si_id)
+				" AND isRunning ORDER BY startTimeMs");
+	while(q.next()) {
+		if(q.value(1).isNull())
+			all_starts_known = false;
+		sharers << Sharer{q.value(0).toInt(), q.value(1).toLongLong()};
+	}
+	auto owner_of_time = [&](std::optional<qint64> time_ms) -> int {
+		if(!time_ms || !all_starts_known || sharers.isEmpty())
+			return DOUBT;
+		qsizetype ix = -1;
+		for(qsizetype i = 0; i < sharers.size(); i++) {
+			if(sharers[i].startMs - check_before_start_ms <= *time_ms)
+				ix = i;
+		}
+		if(ix < 0)
+			return DOUBT; // too early for every runner
+		// starts closer than the check window cannot be told apart
+		if(ix + 1 < sharers.size() && sharers[ix + 1].startMs - sharers[ix].startMs < check_before_start_ms)
+			return DOUBT;
+		if(ix > 0 && sharers[ix].startMs - sharers[ix - 1].startMs < check_before_start_ms)
+			return DOUBT;
+		return sharers[ix].runId;
+	};
+
+	// Owner of each record found by card number, a record with more times must agree on one owner.
+	QList<int> record_owners;
+	auto add_record = [&](const QList<std::optional<qint64>> &times) {
+		int owner = 0;
+		for(const auto &t : times) {
+			int o = owner_of_time(t);
+			if(o == DOUBT || (owner != 0 && o != owner)) {
+				owner = DOUBT;
+				break;
+			}
+			owner = o;
+		}
+		record_owners << (owner == 0? DOUBT: owner);
+	};
+	auto *event_plugin = getPlugin<EventPlugin>();
+	auto card_time_ms = [&](const QVariant &si_time_sec) -> std::optional<qint64> {
+		if(si_time_sec.isNull() || si_time_sec.toInt() == 0xEEEE)
+			return {};
+		return event_plugin->msecToStageStartAM(si_time_sec.toInt(), 0, stage_id);
+	};
+
+	// check time can be copied from another runner by station backup import
+	q.execThrow("SELECT checkTimeMs FROM runs WHERE id=" QF_IARG(run_id) " AND checkTimeMs IS NOT NULL");
+	if(q.next())
+		add_record({q.value(0).toLongLong()});
+
+	const QDateTime stage_start = event_plugin->stageStartDateTime(stage_id);
+	q.execThrow("SELECT punchDateTime FROM stationsbackup WHERE stageId=" QF_IARG(stage_id) " AND siId=" QF_IARG(si_id));
+	while(q.next()) {
+		QDateTime dt = q.value(0).toDateTime();
+		add_record({dt.isValid()? std::optional<qint64>(stage_start.msecsTo(dt)): std::nullopt});
+	}
+
+	// readouts assigned to other runners are trusted, the card reader matches them by time already
+	q.execThrow("SELECT checkTime, startTime, finishTime FROM cards WHERE stageId=" QF_IARG(stage_id) " AND siId=" QF_IARG(si_id)
+				" AND COALESCE(runId, 0)=0");
+	while(q.next()) {
+		QList<std::optional<qint64>> times;
+		for(int i = 0; i < 3; i++) {
+			if(auto t = card_time_ms(q.value(i)))
+				times << t;
+		}
+		if(times.isEmpty())
+			times << std::nullopt;
+		add_record(times);
+	}
+
+	// radio punches are assigned to the first runner with the card, so their run id is not trusted
+	q.execThrow("SELECT timeMs FROM punches WHERE stageId=" QF_IARG(stage_id) " AND siId=" QF_IARG(si_id));
+	while(q.next())
+		add_record({q.value(0).isNull()? std::nullopt: std::optional<qint64>(q.value(0).toLongLong())});
+
+	if(record_owners.contains(run_id))
+		return std::nullopt;
+	if(record_owners.contains(DOUBT))
+		return SharedCard::ManualCheck;
+	return SharedCard::TimeMatched;
+}
+
+int RunsPlugin::markRunsNotStarted(const QList<int> &run_ids, QObject *source)
+{
+	auto *app = qf::gui::framework::Application::instance();
+	const QVariantMap rec { {"notStart", true}, };
+	int n = 0;
+	for(int run_id : run_ids) {
+		if(app->qxSql()->updateRecord("runs", run_id, rec, source))
+			n++;
+	}
+	return n;
+}
+
 int RunsPlugin::courseForRun(int run_id)
 {
 	// TODO: implementation should be dependend on event type and exposed to QML
