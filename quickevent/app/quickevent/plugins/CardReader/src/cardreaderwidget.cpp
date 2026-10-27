@@ -1439,6 +1439,9 @@ void CardReaderWidget::readStationBackupMemory()
 			//qf::gui::dialogs::MessageBox::showInfo(this, "memory read");
 			QVariantMap m = result.toMap();
 			int station_number = m.value("stationNumber").toInt();
+			const int station_mode = m.value("stationMode").toInt();
+			const auto basic_station_mode = siut::SiStationMode::basicMode(station_mode);
+			const QString station_mode_name = siut::SiStationMode::toString(station_mode);
 			QVariantList punches = m.value("punches").toList();
 
 			QVariantList html_rows;
@@ -1458,7 +1461,18 @@ void CardReaderWidget::readStationBackupMemory()
 			const QStringList html_fields{tr("No."), tr("SI"), tr("DateTime"), tr("Card error")};
 			QVariantList html_body = QVariantList() << QStringLiteral("body");
 			html_body.insert(html_body.length(), QVariantList() << QStringLiteral("body"));
-			html_body.insert(html_body.length(), qf::core::utils::HtmlUtils::createHtmlTable(tr("Station %1 backup memory").arg(station_number), html_fields, html_rows));
+			{
+				QString note;
+				switch(basic_station_mode) {
+				case siut::SiStationMode::Check: note = tr("Punches will be saved as check times of runners without check time."); break;
+				case siut::SiStationMode::Clear: note = tr("Punches will be saved as clear times of runners without clear time."); break;
+				case siut::SiStationMode::Start: note = tr("Punches will be saved as start times of runners without start time."); break;
+				case siut::SiStationMode::Unknown: note = tr("Station mode is unknown, you will be asked whether the punches are check times."); break;
+				default: note = tr("Punches will be saved to the station backup only, runs are not changed."); break;
+				}
+				html_body.insert(html_body.length(), QVariantList{QStringLiteral("p"), note});
+			}
+			html_body.insert(html_body.length(), qf::core::utils::HtmlUtils::createHtmlTable(tr("Station %1 (%2) backup memory").arg(station_number).arg(station_mode_name), html_fields, html_rows));
 			qf::core::utils::HtmlUtils::FromHtmlListOptions opts;
 			opts.setDocumentTitle(tr("Station backup memory"));
 			QString html = qf::core::utils::HtmlUtils::fromHtmlList(html_body, opts);
@@ -1478,36 +1492,52 @@ void CardReaderWidget::readStationBackupMemory()
 			dlg.setCentralWidget(w);
 			w->setHtmlText(html);
 			if(dlg.exec()) {
-				// save checks
+				// which runs field is filled by punches of this station
+				QString runs_time_field;
+				switch(basic_station_mode) {
+				case siut::SiStationMode::Check: runs_time_field = QStringLiteral("checkTimeMs"); break;
+				case siut::SiStationMode::Clear: runs_time_field = QStringLiteral("clearTimeMs"); break;
+				case siut::SiStationMode::Start: runs_time_field = QStringLiteral("startTimeMs"); break;
+				case siut::SiStationMode::Unknown:
+					if(qfd::MessageBox::askYesNo(this, tr("Station %1 mode is unknown. Save its punches as check times?").arg(station_number), false))
+						runs_time_field = QStringLiteral("checkTimeMs");
+					break;
+				default: break;
+				}
 				try {
 					qfs::Transaction transaction;
 					int stage_id = getPlugin<EventPlugin>()->currentStageId();
 					qfs::Query q1;
-					q1.prepare("INSERT INTO stationsbackup (stageId, stationNumber, siId, punchDateTime, cardErr) VALUES"
-							  " (:stageId, :stationNumber, :siId, :punchDateTime, :cardErr)"
+					q1.prepare("INSERT INTO stationsbackup (stageId, stationNumber, stationMode, siId, punchDateTime, cardErr) VALUES"
+							  " (:stageId, :stationNumber, :stationMode, :siId, :punchDateTime, :cardErr)"
 							  , qfc::Exception::Throw);
 					QDateTime stage_start_dt = getPlugin<EventPlugin>()->stageStartDateTime(stage_id);
 					qfs::Query q2;
-					q2.prepare("UPDATE runs SET checkTimeMs=:checkTimeMs"
-							  " WHERE siId=:siId AND checkTimeMs IS NULL AND stageId=" QF_IARG(stage_id)
-							  , qfc::Exception::Throw);
+					if(!runs_time_field.isEmpty()) {
+						q2.prepare("UPDATE runs SET " + runs_time_field + "=:timeMs"
+								  " WHERE siId=:siId AND " + runs_time_field + " IS NULL AND stageId=" QF_IARG(stage_id)
+								  , qfc::Exception::Throw);
+					}
 					for (const auto & plist : punches) {
 						QVariantList punch = plist.toList();
 						q1.bindValue(QStringLiteral(":stageId"), stage_id);
 						q1.bindValue(QStringLiteral(":stationNumber"), station_number);
+						q1.bindValue(QStringLiteral(":stationMode"), station_mode == siut::SiStationMode::Unknown? QVariant(): QVariant(station_mode));
 						int si = punch.value(0).toInt();
 						q1.bindValue(QStringLiteral(":siId"), si);
 						QDateTime punch_time = punch.value(1).toDateTime();
-						int check_time_msec = (int)stage_start_dt.msecsTo(punch_time);
+						int time_msec = (int)stage_start_dt.msecsTo(punch_time);
 						q1.bindValue(QStringLiteral(":punchDateTime"), punch_time);
 						bool card_error = punch.value(2).toBool();
 
 						q1.bindValue(QStringLiteral(":cardErr"), card_error);
 						q1.exec(!qfc::Exception::Throw); // ignore unique key error
 
-						q2.bindValue(QStringLiteral(":siId"), si);
-						q2.bindValue(QStringLiteral(":checkTimeMs"), check_time_msec);
-						q2.exec(qfc::Exception::Throw);
+						if(!runs_time_field.isEmpty()) {
+							q2.bindValue(QStringLiteral(":siId"), si);
+							q2.bindValue(QStringLiteral(":timeMs"), time_msec);
+							q2.exec(qfc::Exception::Throw);
+						}
 					}
 					transaction.commit();
 				}
