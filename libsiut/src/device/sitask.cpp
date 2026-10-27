@@ -109,6 +109,44 @@ QString SiStationConfig::toString() const
 	return msg;
 }
 
+//===============================================================
+// SiStationMode
+//===============================================================
+SiStationMode::Mode SiStationMode::basicMode(int mode)
+{
+	switch(mode) {
+	case Control:
+	case BeaconControl: return Control;
+	case Start:
+	case StartTrigger:
+	case BeaconStart: return Start;
+	case Finish:
+	case FinishTrigger:
+	case BeaconFinish: return Finish;
+	case Readout:
+	case BeaconReadout: return Readout;
+	case Clear:
+	case ClearOld: return Clear;
+	case Check: return Check;
+	case Printout: return Printout;
+	default: return Unknown;
+	}
+}
+
+QString SiStationMode::toString(int mode)
+{
+	switch(basicMode(mode)) {
+	case Control: return tr("Control");
+	case Start: return tr("Start");
+	case Finish: return tr("Finish");
+	case Readout: return tr("Readout");
+	case Clear: return tr("Clear");
+	case Check: return tr("Check");
+	case Printout: return tr("Printout");
+	default: return tr("Unknown");
+	}
+}
+
 void SiTaskStationConfig::start()
 {
 	QByteArray ba;
@@ -194,6 +232,26 @@ void SiTaskReadStationBackupMemory::onSiMessageReceived(const SIMessageData &msg
 			m_memoryDataPointer = (m_memoryDataPointer << 8) +  (uint8_t)hdr[ix++];
 			m_memoryDataPointer = (m_memoryDataPointer << 8) +  (uint8_t)hdr[ix++];
 			logCardRead() << "backup memory pointer:" << "0x" + QString::number(m_memoryDataPointer, 16);
+
+			logCardRead() << "ReadMode";
+			m_state = State::ReadMode;
+			QByteArray ba;
+			ba.append(0x71);
+			ba.append(0x01);
+			sendCommand(static_cast<int>(SIMessageData::Command::GetSystemData), ba);
+		}
+		else {
+			qfError() << "Invalid command:" << (int)cmd << "received";
+			abort();
+			return;
+		}
+	}
+	else if(m_state == State::ReadMode) {
+		SIMessageData::Command cmd = msg.command();
+		if(cmd == SIMessageData::Command::GetSystemData) {
+			QByteArray hdr = msg.data();
+			m_stationMode = (hdr.size() > 6)? static_cast<uint8_t>(hdr[6]): SiStationMode::Unknown;
+			logCardRead() << "station mode:" << "0x" + QString::number(m_stationMode, 16) << SiStationMode::toString(m_stationMode);
 
 			m_state = State::CheckOverflow;
 			/// according to
@@ -323,6 +381,7 @@ QVariantMap SiTaskReadStationBackupMemory::createResult()
 {
 	QVariantMap ret;
 	ret["stationNumber"] = m_stationNumber;
+	ret["stationMode"] = m_stationMode;
 	QVariantList punches;
 	/*
 	storage order: SI2-SI1-SI0-DATE1-DATE0-TH-TL-MS

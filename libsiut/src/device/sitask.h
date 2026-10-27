@@ -79,6 +79,33 @@ public:
 	QString toString() const;
 };
 
+/// Station operating mode, as stored in the station system data at address 0x71
+class SIUT_DECL_EXPORT SiStationMode
+{
+	Q_DECLARE_TR_FUNCTIONS(SiStationMode)
+public:
+	enum Mode : int {
+		Unknown = 0,
+		Control = 0x02,
+		Start = 0x03,
+		Finish = 0x04,
+		Readout = 0x05,
+		ClearOld = 0x06, ///< clear without start number, not used any more
+		Clear = 0x07,
+		Check = 0x0A,
+		Printout = 0x0B,
+		StartTrigger = 0x0C, ///< start with external trigger
+		FinishTrigger = 0x0D, ///< finish with external trigger
+		BeaconControl = 0x12, ///< SIAC beacon modes
+		BeaconStart = 0x13,
+		BeaconFinish = 0x14,
+		BeaconReadout = 0x15,
+	};
+	/// Maps variants (trigger, beacon, old clear) to their basic mode: Control, Start, Finish, Readout, Clear, Check, Printout or Unknown
+	static Mode basicMode(int mode);
+	static QString toString(int mode);
+};
+
 class SIUT_DECL_EXPORT SiTaskStationConfig : public SiTask
 {
 	Q_OBJECT
@@ -109,7 +136,7 @@ private:
 	Q_SIGNAL void siMessageForwarded(const siut::SIMessageData &msg);
 	QVariantMap createResult();
 private:
-	enum class State {SwitchToRemote, ReadPointer, CheckOverflow, ReadData, SwitchToDirect};
+	enum class State {SwitchToRemote, ReadPointer, ReadMode, CheckOverflow, ReadData, SwitchToDirect};
 	static constexpr unsigned MEMORY_START = 0x100;
 	static constexpr unsigned MEMORY_SIZE = 0x200000;
 	State m_state = State::SwitchToRemote;
@@ -122,6 +149,7 @@ private:
 	bool m_mayBeInRemoteMode = false;
 	//bool m_isOverflow;
 	int m_stationNumber = 0;
+	int m_stationMode = SiStationMode::Unknown;
 	QByteArray m_data;
 };
 
