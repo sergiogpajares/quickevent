@@ -104,6 +104,7 @@ public:
 	Type type() const override {return  Type::Other;}
 	void start() override;
 	void onSiMessageReceived(const siut::SIMessageData &msg) override;
+	void finishAndDestroy(bool ok, QVariant result) override;
 private:
 	Q_SIGNAL void siMessageForwarded(const siut::SIMessageData &msg);
 	QVariantMap createResult();
@@ -117,6 +118,8 @@ private:
 	unsigned m_blockSize = 128;
 	unsigned m_blockCount;
 	int m_progressPhase = 0;
+	/// station may be in REMOTE mode, it must be switched back to DIRECT when the task fails
+	bool m_mayBeInRemoteMode = false;
 	//bool m_isOverflow;
 	int m_stationNumber = 0;
 	QByteArray m_data;

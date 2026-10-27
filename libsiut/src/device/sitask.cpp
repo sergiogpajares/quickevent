@@ -156,6 +156,7 @@ void SiTaskReadStationBackupMemory::start()
 {
 	logCardRead() << "SwitchToRemote";
 	m_state = State::SwitchToRemote;
+	m_mayBeInRemoteMode = true;
 	auto *cmd = new SiTaskSetDirectRemoteMode(SiTaskSetDirectRemoteMode::Mode::Remote);
 	connect(cmd, &SiTaskSetDirectRemoteMode::sigSendCommand, this, &SiTaskReadStationBackupMemory::sigSendCommand);
 	connect(this, &SiTaskReadStationBackupMemory::siMessageForwarded, cmd, &SiTaskSetDirectRemoteMode::onSiMessageReceived);
@@ -273,6 +274,7 @@ void SiTaskReadStationBackupMemory::onSiMessageReceived(const SIMessageData &msg
 				connect(this, &SiTaskReadStationBackupMemory::siMessageForwarded, cmd, &SiTaskSetDirectRemoteMode::onSiMessageReceived);
 				connect(cmd, &SiTaskSetDirectRemoteMode::finished, this, [this](bool ok, QVariant ) {
 					if(ok) {
+						m_mayBeInRemoteMode = false;
 						finishAndDestroy(true, createResult());
 					}
 					else {
@@ -303,6 +305,18 @@ void SiTaskReadStationBackupMemory::onSiMessageReceived(const SIMessageData &msg
 	else if(m_state == State::SwitchToDirect) {
 		emit siMessageForwarded(msg);
 	}
+}
+
+void SiTaskReadStationBackupMemory::finishAndDestroy(bool ok, QVariant result)
+{
+	if(m_mayBeInRemoteMode) {
+		// do not leave the master station in REMOTE mode, card readout would not work
+		// the reply is not awaited, the task is finishing
+		logCardRead() << "Task failed, switching station back to DIRECT mode";
+		m_mayBeInRemoteMode = false;
+		emit sigSendCommand(static_cast<int>(SIMessageData::Command::SetDirectRemoteMode), QByteArray(1, static_cast<char>(SIMessageData::MS_MODE_DIRECT)));
+	}
+	Super::finishAndDestroy(ok, result);
 }
 
 QVariantMap SiTaskReadStationBackupMemory::createResult()

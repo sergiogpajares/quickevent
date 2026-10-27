@@ -66,6 +66,11 @@ void DeviceDriver::processSIMessageData(const SIMessageData &data)
 		logCardRead() << "SICardRemoved";
 		break;
 	}
+	case SIMessageData::Command::SetDirectRemoteMode: {
+		// reply to a mode switch sent by a task that has already finished
+		logCardRead() << "SetDirectRemoteMode reply";
+		break;
+	}
 	case SIMessageData::Command::SICard5Detected: {
 		logCardRead() << "SICard5Detected";
 		setSiTask(new SiTaskReadCard5(false));
